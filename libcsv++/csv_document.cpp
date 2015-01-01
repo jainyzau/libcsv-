@@ -5,93 +5,13 @@
 namespace CSV
 {
 
-	long long CSVDocument::parse( const std::string& file_path )
+	CSVDocument::row_index_type CSVDocument::load_file( const std::string& file_path )
 	{
-		std::ifstream csv_file(file_path.c_str());
-		if (csv_file.fail())
-		{
-			throw std::runtime_error("Failed to open file " + file_path + ".");
-		}
-		
-		ParseContex contex;
-		while (std::getline(csv_file, contex.read_str))
-		{
-			contex.read_str.append("\n"); //std::getline() reads until CRLF, and doesn't add it to reading string, so we add it here.
-			if (contex.state == LineEnd)
-			{
-				contex.state = LineStart;
-				_hanlde_line_start(contex);
-			}
-			else
-			{
-				contex.row_str.erase(0, contex.field_beg);
-				contex.row_str += contex.read_str;
-				contex.idx -= contex.field_beg;
-				contex.field_beg = contex.field_end = 0;
-			}
-			
-			element_type elem;
-			while(contex.idx < contex.row_str.size())
-			{
-				if (contex.row_str[contex.idx] == '"')
-				{
-					if (contex.field_beg == contex.idx && contex.state == FieldStart)
-					{
-						contex.state = FrontQuote;
-						_handle_front_quote(contex);
-					}
-					else if (contex.state == FrontQuote || contex.state == EscapeOff)
-					{
-						contex.state = EscapeOn;
-					}
-					else if (contex.state == EscapeOn)
-					{
-						contex.state = EscapeOff;
-						_handle_escape_off(contex);
-					}
-					else
-					{
-						throw std::runtime_error("Syntax error: field has quote symbol in middle while no quote symbol in head.");
-					}
-				}
-				else if (contex.row_str[contex.idx] == ',')
-				{
-					contex.field_end = contex.idx;
-					if (contex.field_beg < contex.idx && contex.row_str[contex.idx-1] == '"' && (contex.state == EscapeOn || contex.state == EscapeOff))
-					{
-						contex.state = BackQuote;
-						_handle_back_quote(contex);
-					}
-
-					if (contex.state == BackQuote || contex.state == FieldStart)
-					{
-						contex.state = FieldEnd;
-						_handle_field_end(contex);
-					}
-				}
-				else if (contex.row_str[contex.idx] == '\n')
-				{
-					if (contex.state == FieldStart)
-					{
-						// the last field is end, so we have FieldEnd state and then LineEnd state.
-						contex.field_end = contex.idx;
-
-						contex.state = FieldEnd;
-						_handle_field_end(contex);
-
-						contex.state = LineEnd;
-					}
-					else if (contex.state == FrontQuote || contex.state == EscapeOff)
-					{
-						// This field has a CRLF char, reads another line and continue.
-					}
-				}
-
-				++contex.idx;
-			}
-		}
-
-		return contex.row_count;
+		// why use a separate parser? 
+		// Because parser uses some local variables, if we use a separate parser, all these 
+		// variables are de-constructed after loading while parsed data is still valid.
+		CSVParser parser;
+		return parser.parse(this, file_path);
 	}
 
 	CSVDocument::row_index_type CSVDocument::to_file( const std::string& file_path, OutputMode output_mode /* = OptionalEnclosure*/ )
@@ -302,65 +222,301 @@ namespace CSV
 		}
 	}
 
-	void CSVDocument::_handle_field_end( ParseContex& contex )
+	CSVParser::CSVParser()
 	{
-		contex.elem.append(contex.row_str.c_str() + contex.field_beg, contex.field_end - contex.field_beg);
-		contex.field_beg = contex.idx + 1;
-		contex.row.push_back(contex.elem);
-
-		contex.state = FieldStart;
-		_handle_field_start(contex);
+		idx = field_beg = field_end = 0;
+		row_count = col_count = 0;
+		state = LineEnd;
 	}
 
-	void CSVDocument::_handle_escape_off( ParseContex& contex )
+	CSVDocument::row_index_type CSVParser::parse( CSVDocument* p_doc, const std::string& file_path )
 	{
-		if (contex.row_str[contex.idx - 1] != '"') // in this state, (idx - 1) is definitely valid.
+		_initialize(p_doc, file_path);
+		for (; state != ParseCompleted; _next())
 		{
-			throw std::runtime_error("Syntax error: quote is not escaped properly.");
-		}
-		contex.elem.append(contex.row_str.c_str() + contex.field_beg, contex.idx - contex.field_beg);
-		contex.field_beg = contex.idx + 1;
-	}
-
-	void CSVDocument::_handle_back_quote( ParseContex& contex )
-	{
-		contex.field_end = contex.idx - 1;
-	}
-
-	void CSVDocument::_handle_front_quote( ParseContex& contex )
-	{
-		++contex.field_beg;
-	}
-
-	void CSVDocument::_handle_field_start( ParseContex& contex )
-	{
-		contex.elem.clear();
-	}
-
-	void CSVDocument::_hanlde_line_start( ParseContex& contex )
-	{
-		if (contex.row.size() > 0)
-		{
-			if (contex.col_count == 0)
+			// I know design pattern, but I don't want to make things more complicated.
+			switch(state)
 			{
-				contex.col_count = contex.row.size();
+			case LineStart:
+				_post_line_start();
+				break;
+			case FieldStart:
+				_post_field_start();
+				break;
+			case FrontQuote:
+				_post_front_quote();
+				break;
+			case EscapeOn:
+				_post_escape_on();
+				break;
+			case EscapeOff:
+				_post_escape_off();
+				break;
+			case BackQuote:
+				_post_back_quote();
+				break;
+			case FieldEnd:
+				_post_field_end();
+				break;
+			case LineEnd:
+				_post_line_end();
+				break;
 			}
-			else if (contex.row.size() > contex.col_count)
+		}
+
+		return row_count;
+	}
+
+	char CSVParser::_curr_char() const
+	{
+		return row_str[idx];
+	}
+
+	void CSVParser::_next()
+	{
+		++idx;
+	}
+
+	void CSVParser::_post_line_start()
+	{
+	}
+
+	void CSVParser::_post_field_start()
+	{
+		if (_curr_char() == ',')
+		{
+			field_end = idx;
+			_field_end();
+		}
+		else if (_curr_char() == '\n')
+		{
+			_field_end();
+			_line_end();
+		}
+	}
+
+	void CSVParser::_post_front_quote()
+	{
+		if (_curr_char() == '"')
+		{
+			_escape_on();
+		}
+		else if (_curr_char() == '\n')
+		{
+			_append_another_line_from_file();
+		}
+	}
+
+	void CSVParser::_post_escape_on()
+	{
+		if (_curr_char() == ',')
+		{
+			_back_quote();
+			_field_end();
+		}
+		else if (_curr_char() == '"')
+		{
+			_escape_off();
+		}
+		else if (_curr_char() == '\n')
+		{
+			_back_quote();
+			_field_end();
+			_line_end();
+		}
+		else
+		{
+			throw std::runtime_error("Syntax error: quote symbol in front of character which is not quote symbol.");
+		}
+	}
+
+	void CSVParser::_post_escape_off()
+	{
+		if (_curr_char() == '"')
+		{
+			_escape_on();
+		}
+		else if (_curr_char() == '\n')
+		{
+			_append_another_line_from_file();
+		}
+	}
+
+	void CSVParser::_post_back_quote()
+	{
+	}
+
+	void CSVParser::_post_field_end()
+	{
+		_field_start();
+
+		if (_curr_char() == '"')
+		{
+			_front_quote();
+		}
+		else if (_curr_char() == ',')
+		{
+			_field_end();
+		}
+		else if (_curr_char() == '\n')
+		{
+			_field_end();
+			_line_end();
+		}
+	}
+
+	void CSVParser::_post_line_end()
+	{
+		_line_start();
+		_field_start();
+
+		if (_curr_char() == '"')
+		{
+			_front_quote();
+		}
+		else if (_curr_char() == ',')
+		{
+			_field_end();
+		}
+		else if (_curr_char() == '\n')
+		{
+			throw std::runtime_error("Syntax error: empty line is not allowed.");
+		}
+	}
+
+	void CSVParser::_open_csv_file( const std::string& file_path )
+	{
+		csv_file.open(file_path.c_str());
+		if (csv_file.fail())
+		{
+			throw std::runtime_error("Failed to open file " + file_path + ".");
+		}
+	}
+
+	std::ifstream& CSVParser::_get_line_from_file()
+	{
+		if (std::getline(csv_file, read_str))
+		{
+			read_str += '\n';
+		}
+		else if (csv_file.eof())
+		{
+			state = ParseCompleted;
+		}
+		else
+		{
+			throw std::runtime_error("Internal error: failed to read more data from file.");
+		}
+
+		return csv_file;
+	}
+
+	void CSVParser::_append_another_line_from_file()
+	{
+		if (_get_line_from_file())
+		{
+			row_str.erase(0, field_beg);
+			row_str += read_str;
+			idx -= field_beg;
+			field_beg = field_end = 0;
+		}
+		else if (csv_file.eof())
+		{
+			throw std::runtime_error("No more data in file. Parsing is not completed.");
+		}
+	}
+
+	void CSVParser::_initialize( CSVDocument* p_doc, const std::string& file_path )
+	{
+		if (!p_doc)
+		{
+			throw std::runtime_error("Destination of parsed data is not set.");
+		}
+		m_doc = p_doc;
+
+		_open_csv_file(file_path);
+		_line_end();
+	}
+
+	void CSVParser::_field_end()
+	{
+		elem.append(row_str.c_str() + field_beg, field_end - field_beg);
+		field_beg = idx + 1;
+		row.push_back(elem);
+		state = FieldEnd;
+	}
+
+	void CSVParser::_line_start()
+	{
+		row.clear();
+		++row_count;
+		idx = 0;
+		state = LineStart;
+	}
+
+	void CSVParser::_field_start()
+	{
+		elem.clear();
+		field_beg = field_end = idx;
+		state = FieldStart;
+	}
+
+	void CSVParser::_escape_on()
+	{
+		state = EscapeOn;
+	}
+
+	void CSVParser::_escape_off()
+	{
+		elem.append(row_str.c_str() + field_beg, idx - field_beg);
+		field_beg = idx + 1;
+		state = EscapeOff;
+	}
+
+	void CSVParser::_front_quote()
+	{
+		++field_beg;
+		state = FrontQuote;
+	}
+
+	void CSVParser::_back_quote()
+	{
+		field_end = idx - 1;
+		state = FrontQuote;
+	}
+
+	void CSVParser::_line_end()
+	{
+		if (row.size() > 0)
+		{
+			if (col_count == 0)
+			{
+				col_count = row.size(); // Initialize col_count to the size of the first valid line.
+			}
+
+			if (row.size() != col_count)
 			{
 				std::ostringstream str_stream;
-				str_stream << "Syntax error: too much fields in line " << contex.row_count << ".";
+				str_stream << "Syntax error: too " 
+					<< (row.size() > col_count ? "much" : "few") 
+					<< " fields in line " << row_count << ".";
 				throw std::runtime_error(str_stream.str());
 			}
-			m_doc.push_back(contex.row);
-			contex.row.clear();
+			else
+			{
+				m_doc->add_row(row);
+			}
 		}
-		++contex.row_count;
-		contex.row_str = contex.read_str;
-		contex.idx = 0;
-		contex.field_beg = contex.field_end = 0;
+		else if(col_count > 0)
+		{
+			throw std::runtime_error("Syntax error: empty line is not allowed.");
+		}
 
-		contex.state = FieldStart;
-		_handle_field_start(contex);
+		if (_get_line_from_file())
+		{
+			row_str = read_str;
+			state = LineEnd;
+		}
 	}
 
 }

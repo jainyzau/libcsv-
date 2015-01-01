@@ -3,8 +3,11 @@
 #include <vector>
 #include <list>
 #include <string>
+#include <fstream>
 namespace CSV
 {
+	class CSVParser;
+
 	class CSVDocument
 	{
 	public:
@@ -16,44 +19,12 @@ namespace CSV
 		typedef document_type::iterator iterator;
 		typedef document_type::const_iterator const_iterator;
 
-		enum ParseState{
-			LineStart,
-			FieldStart,
-			FrontQuote,
-			BackQuote,
-			EscapeOn,
-			EscapeOff,
-			FieldEnd,
-			LineEnd
-		};
-
 		enum OutputMode{
 			CompleteEnclosure,
 			OptionalEnclosure
 		};
 
-		struct ParseContex {
-			ParseContex(){
-				idx = 0;
-				field_beg = 0;
-				field_end = 0;
-				state = LineEnd;
-				row_count = 0;
-				col_count = 0;
-			}
-			std::string read_str;
-			row_index_type row_count;
-			column_index_type col_count;
-			std::string row_str;
-			std::string::size_type idx;
-			std::string::size_type field_beg;
-			std::string::size_type field_end;
-			std::string elem;
-			row_type row;
-			ParseState state;
-		};
-
-		long long parse(const std::string& file_path);
+		row_index_type load_file(const std::string& file_path);
 		row_index_type to_file(const std::string& file_path, OutputMode output_mode = OptionalEnclosure);
 		const document_type& get_document() const;
 		const row_type& get_row(row_index_type row) const;
@@ -77,14 +48,65 @@ namespace CSV
 		void _check_row_index( row_index_type row_idx ) const;
 		void _check_col_index( column_index_type col ) const;
 
-		void _hanlde_line_start(ParseContex& contex);
-		void _handle_field_start(ParseContex& contex);
-		void _handle_field_end(ParseContex& contex);
-		void _handle_escape_off(ParseContex& contex);
-		void _handle_back_quote(ParseContex& contex);
-		void _handle_front_quote(ParseContex& contex);
-
 		document_type m_doc;
+	};
+
+	class CSVParser {
+	public:
+		enum ParseState{
+			LineStart,
+			FieldStart,
+			FrontQuote,
+			BackQuote,
+			EscapeOn,
+			EscapeOff,
+			FieldEnd,
+			LineEnd,
+			ParseCompleted
+		};
+
+		CSVParser();
+		CSVDocument::row_index_type parse(CSVDocument* p_doc, const std::string& file_path);		
+
+	private:
+		inline char _curr_char() const;
+		inline void _next();
+
+		void _line_start();
+		void _field_start();
+		void _field_end();
+		void _escape_on();
+		void _escape_off();
+		void _front_quote();
+		void _back_quote();
+		void _line_end();
+
+		void _post_line_start();
+		void _post_field_start();
+		void _post_front_quote();
+		void _post_escape_on();
+		void _post_escape_off();
+		void _post_back_quote();
+		void _post_field_end();
+		void _post_line_end();
+
+		void _open_csv_file(const std::string& file_path);
+		std::ifstream& _get_line_from_file();
+		void _append_another_line_from_file();
+		void _initialize(CSVDocument* p_doc, const std::string& file_path);
+
+		std::string read_str;
+		std::string row_str;
+		CSVDocument::row_index_type row_count;
+		CSVDocument::column_index_type col_count;
+		std::string::size_type idx;
+		std::string::size_type field_beg;
+		std::string::size_type field_end;
+		std::string elem;
+		CSVDocument::row_type row;
+		ParseState state;
+		CSVDocument* m_doc;
+		std::ifstream csv_file;
 	};
 
 }

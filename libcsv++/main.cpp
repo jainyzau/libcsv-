@@ -4,8 +4,9 @@
 int main()
 {
 	CSV::CSVDocument lDoc;
-	lDoc.parse("csv/test.csv");
+	CSV::CSVDocument::row_index_type row_count = lDoc.load_file("csv/test.csv");
 
+	std::cout << "Parsed Lines: " << row_count << std::endl;
 	std::cout << lDoc.get_element(0, 5) << std::endl;
 	CSV::CSVDocument::row_type row = lDoc.get_row(0);
 	for (CSV::CSVDocument::row_type::iterator itr = row.begin(); itr != row.end(); ++itr)
