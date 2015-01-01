@@ -222,6 +222,20 @@ namespace CSV
 		}
 	}
 
+	CSVDocument::row_index_type CSVDocument::row_count() const
+	{
+		return size();
+	}
+
+	CSVDocument::column_index_type CSVDocument::col_count() const
+	{
+		if (m_doc.size() > 0)
+		{
+			return m_doc.front().size();
+		}
+		return 0;
+	}
+
 	CSVParser::CSVParser()
 	{
 		idx = field_beg = field_end = 0;

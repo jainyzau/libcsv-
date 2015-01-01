@@ -35,5 +35,18 @@ int main()
 		}
 		std::cout << std::endl;
 	}
+
+	for (size_t i = 0; i < lDoc.row_count(); ++i)
+	{
+		for (size_t j = 0; j < lDoc.col_count(); ++j)
+		{
+			std::cout << lDoc[i][j];
+			if (j + 1 != lDoc.col_count())
+			{
+				std::cout << ",";
+			}
+		}
+		std::cout << std::endl;
+	}
 	
 }
