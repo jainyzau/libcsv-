@@ -1,7 +1,7 @@
 #include "csv_document.h"
 #include <fstream>
-#include <iostream>
 #include <sstream>
+#include <stdexcept>
 namespace CSV
 {
 
@@ -290,6 +290,7 @@ namespace CSV
 		}
 		else if (_curr_char() == '\n')
 		{
+			field_end = idx;
 			_field_end();
 			_line_end();
 		}
