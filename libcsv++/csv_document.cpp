@@ -308,6 +308,13 @@ namespace CSV
 			_field_end();
 			_line_end();
 		}
+		else if (_curr_char() == '\"')
+		{
+			if (field_beg != idx)
+			{
+				throw std::runtime_error("Syntax error: quote symbol in unenclosed field.");
+			}
+		}
 	}
 
 	void CSVParser::_post_front_quote()
